@@ -1,94 +1,219 @@
 #include "main.h"
+#include "lemlib/api.hpp"
 
-/**
- * A callback function for LLEMU's center button.
- *
- * When this callback is fired, it will toggle line 2 of the LCD text between
- * "I was pressed!" and nothing.
- */
-void on_center_button() {
-	static bool pressed = false;
-	pressed = !pressed;
-	if (pressed) {
-		pros::lcd::set_text(2, "I was pressed!");
-	} else {
-		pros::lcd::clear_line(2);
-	}
-}
+//
+// ===============================
+// MOTORS
+// ===============================
+//
 
-/**
- * Runs initialization code. This occurs as soon as the program is started.
- *
- * All other competition modes are blocked by initialize; it is recommended
- * to keep execution time for this mode under a few seconds.
- */
+// Left drive
+						//port, motor type (speed), reversed
+pros::Motor left_motor_a(1, pros::E_MOTOR_GEARSET_BLUE, false);
+pros::Motor left_motor_b(2, pros::E_MOTOR_GEARSET_BLUE, false);
+pros::Motor left_motor_c(3, pros::E_MOTOR_GEARSET_BLUE, false);
+
+// Right drive
+pros::Motor right_motor_a(8, pros::E_MOTOR_GEARSET_BLUE, true);
+pros::Motor right_motor_b(9, pros::E_MOTOR_GEARSET_BLUE, true);
+pros::Motor right_motor_c(10, pros::E_MOTOR_GEARSET_BLUE, true);
+
+// Intake / outtake
+pros::Motor intake_motor(7, pros::E_MOTOR_GEARSET_BLUE, false);
+pros::Motor outtake_motor(6, pros::E_MOTOR_GEARSET_BLUE, true);
+
+
+//
+// ===============================
+// MOTOR GROUPS
+// ===============================
+//
+
+pros::MotorGroup left_drive({left_motor_a, left_motor_b, left_motor_c});
+pros::MotorGroup right_drive({right_motor_a, right_motor_b, right_motor_c});
+
+
+//
+// ===============================
+// CONTROLLER
+// ===============================
+//
+
+pros::Controller controller(pros::E_CONTROLLER_MASTER);
+
+
+//
+// ===============================
+// PNEUMATICS
+// ===============================
+//
+							//port
+pros::ADIDigitalOut wing_piston('A');
+pros::ADIDigitalOut matchloader_piston('B');
+pros::ADIDigitalOut midscore_piston('C');
+
+
+//
+// ===============================
+// LEMLIB DRIVETRAIN SETUP
+// ===============================
+//
+
+// Track width and wheel diameter MUST be tuned
+lemlib::Drivetrain drivetrain(
+    &left_drive,
+    &right_drive,
+    10,//distance between left/right wheels
+    lemlib::Omniwheel::NEW_4, // wheel type, change based on what we have
+    600, //max chassis rpm - Ask about this to like sanjo
+    2 //Drift (CHANGE!!!)
+);
+
+/*=================
+     ODOM STUFF
+====================*/
+
+pros::Imu imu(10); // change port later
+
+// No sensors yet (add later)
+lemlib::OdomSensors sensors(
+    nullptr, // Left tracking wheel sensor (not used yet)
+    nullptr, // Right tracking wheel sensor (not used yet)
+    nullptr, // Back/lateral tracking wheel sensor (not used yet)
+    &imu, // Optional IMU for heading (not used yet)
+    nullptr  // Extra/unused sensor slot (not used yet)
+);
+
+
+
+lemlib::ControllerSettings lateral_controller(
+    10,   // kP (proportional gain)
+    0,    // kI (integral gain)
+
+    3,    // kD (derivative gain)
+
+    0,    // anti-windup
+
+    1,    // small error range (inches)
+
+    100,  // small error timeout (ms)
+
+    3,    // large error range (inches)
+
+    500,  // large error timeout (ms)
+
+    20    // max acceleration (slew rate)
+);
+
+//Same for this controller
+lemlib::ControllerSettings angular_controller(
+    2, 0, 10, 3, 1, 100, 3, 500, 20
+);
+
+lemlib::Chassis chassis(
+    drivetrain,
+    lateral_controller,
+    angular_controller,
+    sensors
+);
+
+
+//
+// ===============================
+// INITIALIZE
+// ===============================
+//
+
 void initialize() {
-	pros::lcd::initialize();
-	pros::lcd::set_text(1, "Hello PROS User!");
 
-	pros::lcd::register_btn1_cb(on_center_button);
+    left_drive.set_brake_modes(pros::E_MOTOR_BRAKE_BRAKE);
+    right_drive.set_brake_modes(pros::E_MOTOR_BRAKE_BRAKE);
+
+    wing_piston.set_value(true);
+    matchloader_piston.set_value(false);
+    midscore_piston.set_value(true);
 }
 
-/**
- * Runs while the robot is in the disabled state of Field Management System or
- * the VEX Competition Switch, following either autonomous or opcontrol. When
- * the robot is enabled, this task will exit.
- */
-void disabled() {}
 
-/**
- * Runs after initialize(), and before autonomous when connected to the Field
- * Management System or the VEX Competition Switch. This is intended for
- * competition-specific initialization routines, such as an autonomous selector
- * on the LCD.
- *
- * This task will exit when the robot is enabled and autonomous or opcontrol
- * starts.
- */
-void competition_initialize() {}
+//
+// ===============================
+// AUTONOMOUS
+// ===============================
+//
 
-/**
- * Runs the user autonomous code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the autonomous
- * mode. Alternatively, this function may be called in initialize or opcontrol
- * for non-competition testing purposes.
- *
- * If the robot is disabled or communications is lost, the autonomous task
- * will be stopped. Re-enabling the robot will restart the task, not re-start it
- * from where it left off.
- */
-void autonomous() {}
+void autonomous() {
+    pros::lcd::print(0, "AUTONOMOUS");
 
-/**
- * Runs the operator control code. This function will be started in its own task
- * with the default priority and stack size whenever the robot is enabled via
- * the Field Management System or the VEX Competition Switch in the operator
- * control mode.
- *
- * If no competition control is connected, this function will run immediately
- * following initialize().
- *
- * If the robot is disabled or communications is lost, the
- * operator control task will be stopped. Re-enabling the robot will restart the
- * task, not resume it from where it left off.
- */
+}
+
+
+//
+// ===============================
+// DRIVER CONTROL
+// ===============================
+//
+
+bool matchloader_pressed = false;
+bool wing_pressed = false;
+bool midscore_pressed = false;
+
 void opcontrol() {
-	pros::Controller master(pros::E_CONTROLLER_MASTER);
-	pros::MotorGroup left_mg({1, -2, 3});    // Creates a motor group with forwards ports 1 & 3 and reversed port 2
-	pros::MotorGroup right_mg({-4, 5, -6});  // Creates a motor group with forwards port 5 and reversed ports 4 & 6
 
+    while (true) {
 
-	while (true) {
-		pros::lcd::print(0, "%d %d %d", (pros::lcd::read_buttons() & LCD_BTN_LEFT) >> 2,
-		                 (pros::lcd::read_buttons() & LCD_BTN_CENTER) >> 1,
-		                 (pros::lcd::read_buttons() & LCD_BTN_RIGHT) >> 0);  // Prints status of the emulated screen LCDs
+        int forward = controller.get_analog(ANALOG_LEFT_Y);
+        int turning = controller.get_analog(ANALOG_RIGHT_X);
 
-		// Arcade control scheme
-		int dir = master.get_analog(ANALOG_LEFT_Y);    // Gets amount forward/backward from left joystick
-		int turn = master.get_analog(ANALOG_RIGHT_X);  // Gets the turn left/right from right joystick
-		left_mg.move(dir - turn);                      // Sets left motor voltage
-		right_mg.move(dir + turn);                     // Sets right motor voltage
-		pros::delay(20);                               // Run for 20 ms then update
-	}
+        double scale = 0.8;
+
+        left_drive.move((forward + turning) * scale);
+        right_drive.move((forward - turning) * scale);
+
+        // ---------------------------
+        // INTAKE
+        // ---------------------------
+        if (controller.get_digital(DIGITAL_R1))
+            intake_motor.move(-127);
+        else if (controller.get_digital(DIGITAL_L1))
+            intake_motor.move(127);
+        else
+            intake_motor.brake();
+
+        // ---------------------------
+        // OUTTAKE
+        // ---------------------------
+        if (controller.get_digital(DIGITAL_R2))
+            outtake_motor.move(-127);
+        else if (controller.get_digital(DIGITAL_L2))
+            outtake_motor.move(127);
+        else
+            outtake_motor.brake();
+
+        // ---------------------------
+        // PNEUMATICS TOGGLES
+        // ---------------------------
+
+        if (controller.get_digital(DIGITAL_X) && !matchloader_pressed) {
+            matchloader_piston.set_value(!matchloader_piston.get_value());
+            matchloader_pressed = true;
+        }
+        if (!controller.get_digital(DIGITAL_X))
+            matchloader_pressed = false;
+
+        if (controller.get_digital(DIGITAL_A) && !wing_pressed) {
+            wing_piston.set_value(!wing_piston.get_value());
+            wing_pressed = true;
+        }
+        if (!controller.get_digital(DIGITAL_A))
+            wing_pressed = false;
+
+        if (controller.get_digital(DIGITAL_Y) && !midscore_pressed) {
+            midscore_piston.set_value(!midscore_piston.get_value());
+            midscore_pressed = true;
+        }
+        if (!controller.get_digital(DIGITAL_Y))
+            midscore_pressed = false;
+
+        pros::delay(20);
+    }
 }
